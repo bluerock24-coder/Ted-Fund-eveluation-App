@@ -1,0 +1,734 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แบบฟอร์มให้คะแนน TED Fund</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Calm Neutral with Teal Accent -->
+    <!-- Application Structure Plan: Re-architected from HTX app. New app for TED Fund. Groups are 'idea' and 'poc'. All UI and default data reflect this change. Firebase connection logic uses onSnapshot for real-time data synchronization across all devices. Admin panel allows full CRUD for judges, teams, and criteria for both IDEA and POC forms. -->
+    <!-- Visualization & Content Choices: Identical to HTX app, but populated with TED Fund criteria. Radar chart and scoring logic adapted to new criteria structure. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 450px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        .score-label {
+            transition: all 0.2s ease-in-out;
+        }
+        .score-input:checked + .score-label {
+            background-color: #0d9488; /* teal-600 */
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        .tab-button.active {
+            border-color: #0d9488; /* teal-600 */
+            color: #0d9488;
+            background-color: #f0fdfa; /* teal-50 */
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .criteria-form-selector.active {
+            border-color: #0d9488; /* teal-600 */
+            color: #0d9488;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0d9488;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div id="app-loader" class="min-h-screen flex flex-col items-center justify-center bg-slate-100">
+        <div class="loader"></div>
+        <p class="mt-4 text-slate-600">กำลังเชื่อมต่อฐานข้อมูล...</p>
+    </div>
+
+    <div id="login-container" class="min-h-screen flex items-center justify-center bg-slate-100 hidden">
+        <div class="text-center p-8 bg-white rounded-xl shadow-lg max-w-md w-full">
+            <h1 class="text-3xl font-bold text-teal-700 mb-2">ระบบประเมินผลการคัดเลือก Startup</h1>
+            <h2 class="text-2xl font-semibold text-slate-600 mb-8">โครงการ TED Fund</h2>
+            <p class="text-slate-500 mb-8">กรุณาเข้าสู่ระบบเพื่อเริ่มต้น</p>
+            <button id="login-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-5 rounded-lg hover:bg-teal-700 transition duration-300 text-lg">เข้าสู่ระบบ</button>
+        </div>
+    </div>
+    
+    <div id="app-container" class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-7xl hidden">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-teal-700">แบบฟอร์มการให้คะแนน โครงการ TED Fund</h1>
+            <p class="text-slate-500 mt-2">เครื่องมือสำหรับกรรมการเพื่อการประเมินที่แม่นยำและเป็นระบบ</p>
+        </header>
+        
+        <div id="selection-area" class="mb-8 p-6 bg-white rounded-xl shadow-md flex flex-col sm:flex-row justify-between items-center gap-4">
+             <div id="current-selection-display" class="text-center sm:text-left">
+                <p class="text-lg font-semibold text-slate-700">ยังไม่ได้เลือกทีม</p>
+                <p id="logged-in-user-display" class="text-sm text-slate-500">กรุณาเลือกทีมเพื่อเริ่มประเมิน</p>
+            </div>
+            <div class="flex flex-wrap justify-center gap-4">
+                <button id="list-view-btn" class="bg-yellow-500 text-white font-bold py-2 px-5 rounded-lg hover:bg-yellow-600 transition hidden">จัดการข้อมูล</button>
+                <button id="select-judge-team-btn" class="bg-teal-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-teal-700 transition">ให้คะแนน/แก้ไข</button>
+                <button id="view-report-btn" class="bg-slate-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-slate-700 transition hidden">รายงานสรุป</button>
+                <button id="view-judge-report-btn" class="bg-indigo-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-indigo-700 transition">รายงานตามกรรมการ</button>
+                <button id="logout-btn" class="bg-red-500 text-white font-bold py-2 px-5 rounded-lg hover:bg-red-600 transition">ออกจากระบบ</button>
+            </div>
+        </div>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8 hidden" id="main-app-area">
+            <div class="lg:col-span-2 space-y-6" id="scoring-criteria"></div>
+            <aside class="lg:col-span-1">
+                <div class="sticky top-8 bg-white p-6 rounded-xl shadow-lg">
+                    <h2 class="text-2xl font-bold text-center mb-4 text-teal-700">สรุปผลคะแนน</h2>
+                    <div class="text-center mb-6">
+                        <p class="text-slate-500 text-lg">คะแนนรวม</p>
+                        <p id="totalScore" class="text-6xl font-bold text-teal-600 transition-all duration-300">0.00</p>
+                        <p class="text-slate-500">จากคะแนนเต็ม 5.00</p>
+                    </div>
+                    <div class="chart-container"><canvas id="scoreRadarChart"></canvas></div>
+                    <div class="mt-6 text-center text-sm text-slate-500"><p>กราฟ Radar แสดงสัดส่วนคะแนนในแต่ละหมวดหมู่</p></div>
+                </div>
+            </aside>
+        </main>
+        
+        <section class="mt-8 bg-white rounded-xl shadow-md p-6 hidden" id="comment-area">
+             <h2 class="text-2xl font-bold mb-4 text-teal-700">ความคิดเห็นและข้อเสนอแนะ</h2>
+             <div class="space-y-4">
+                 <div>
+                     <label for="strengths" class="block text-sm font-medium text-slate-600 mb-2">จุดแข็งที่โดดเด่นที่สุด</label>
+                     <textarea id="strengths" rows="4" class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 transition" placeholder="ระบุจุดแข็ง..."></textarea>
+                 </div>
+                 <div>
+                     <label for="improvements" class="block text-sm font-medium text-slate-600 mb-2">ประเด็นที่ควรพัฒนา</label>
+                     <textarea id="improvements" rows="4" class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 transition" placeholder="ระบุข้อเสนอแนะ..."></textarea>
+                 </div>
+             </div>
+             <div class="mt-6 text-right">
+                <button id="submit-score-btn" class="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 transition text-lg">ส่งคะแนนและกลับหน้าหลัก</button>
+             </div>
+        </section>
+    </div>
+
+    <!-- Modals -->
+    <dialog id="login-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-lg"><div class="p-6"><h2 class="text-2xl font-bold text-center mb-6 text-teal-700">เข้าสู่ระบบ</h2><div class="space-y-3"><h3 class="font-semibold text-slate-600">กรุณาเลือกบทบาทของคุณ:</h3><div id="login-judge-list" class="space-y-2"></div><hr class="my-3"><button id="login-admin-btn" class="w-full text-left p-3 border rounded-md cursor-pointer hover:bg-indigo-50 font-bold text-indigo-700">เข้าสู่ระบบในฐานะ Admin</button></div></div></dialog>
+    <dialog id="selection-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-md"><div class="p-6"><h2 class="text-2xl font-bold text-center mb-6 text-teal-700">เลือกทีมที่ต้องการประเมิน</h2><div id="team-list-container"><h3 class="font-semibold text-slate-600 mb-3">เลือกทีม:</h3><div id="team-list" class="space-y-2 max-h-72 overflow-y-auto pr-2"></div></div><div class="mt-8 flex justify-end gap-4"><button id="cancel-selection-btn" class="bg-slate-200 text-slate-700 font-bold py-2 px-5 rounded-lg hover:bg-slate-300 transition">ยกเลิก</button><button id="confirm-selection-btn" class="bg-teal-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-teal-700 transition" disabled>ยืนยัน</button></div></div></dialog>
+    <dialog id="report-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-4xl"><div class="p-6"><div class="flex justify-between items-center mb-4"><h2 class="text-2xl font-bold text-teal-700">รายงานสรุปผลคะแนนรวม</h2><button id="close-report-btn" class="text-2xl font-bold text-slate-500 hover:text-slate-800">&times;</button></div><div id="report-content" class="max-h-[70vh] overflow-y-auto"></div></div></dialog>
+    <dialog id="judge-report-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-5xl"><div class="p-6"><div class="flex justify-between items-center mb-4"><h2 id="judge-report-title" class="text-2xl font-bold text-indigo-700">รายงานประเมินผล</h2><button id="close-judge-report-btn" class="text-2xl font-bold text-slate-500 hover:text-slate-800">&times;</button></div><div id="judge-report-content" class="max-h-[70vh] overflow-y-auto"></div></div></dialog>
+    
+    <dialog id="add-team-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-md"><form id="add-team-form" class="p-6"><h2 class="text-2xl font-bold text-center mb-6 text-cyan-700">เพิ่มทีมใหม่</h2><div class="space-y-4"><label class="block"> <span class="text-slate-700">ชื่อทีม:</span> <input type="text" id="new-team-name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-cyan-500 focus:ring focus:ring-cyan-200 focus:ring-opacity-50"> </label><div><span class="text-slate-700">ประเภททีม:</span><div class="mt-2 space-y-2"><label class="flex items-center"><input type="radio" name="team-type" value="idea" required class="h-4 w-4 text-cyan-600 border-slate-300 focus:ring-cyan-500"><span class="ml-2">IDEA</span></label><label class="flex items-center"><input type="radio" name="team-type" value="poc" class="h-4 w-4 text-cyan-600 border-slate-300 focus:ring-cyan-500"><span class="ml-2">Proof of Concept (POC)</span></label></div></div></div><div class="mt-8 flex justify-end gap-4"><button type="button" id="cancel-add-team-btn" class="bg-slate-200 text-slate-700 font-bold py-2 px-5 rounded-lg hover:bg-slate-300">ยกเลิก</button><button type="submit" class="bg-cyan-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-cyan-700">บันทึก</button></div></form></dialog>
+    <dialog id="add-judge-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-md"><form id="add-judge-form" class="p-6"><h2 class="text-2xl font-bold text-center mb-6 text-cyan-700">เพิ่มกรรมการใหม่</h2><div class="space-y-4"><label class="block"><span class="text-slate-700">ชื่อกรรมการ:</span><input type="text" id="new-judge-name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-cyan-500 focus:ring focus:ring-cyan-200 focus:ring-opacity-50"></label><div><span class="text-slate-700">กลุ่มที่ประเมิน:</span><div id="assigned-groups" class="mt-2 space-y-2"><label class="flex items-center"><input type="checkbox" name="judge-group" value="idea" class="h-4 w-4 rounded text-cyan-600 border-slate-300 focus:ring-cyan-500"><span class="ml-2">IDEA</span></label><label class="flex items-center"><input type="checkbox" name="judge-group" value="poc" class="h-4 w-4 rounded text-cyan-600 border-slate-300 focus:ring-cyan-500"><span class="ml-2">Proof of Concept (POC)</span></label></div><p id="group-error" class="text-red-500 text-sm mt-1 hidden">กรุณาเลือกอย่างน้อย 1 กลุ่ม</p></div></div><div class="mt-8 flex justify-end gap-4"><button type="button" id="cancel-add-judge-btn" class="bg-slate-200 text-slate-700 font-bold py-2 px-5 rounded-lg hover:bg-slate-300">ยกเลิก</button><button type="submit" class="bg-cyan-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-cyan-700">บันทึก</button></div></form></dialog>
+    <dialog id="list-view-modal" class="p-0 rounded-xl shadow-xl w-11/12 max-w-5xl"><div class="p-6"><div class="flex justify-between items-start mb-4"><h2 class="text-2xl font-bold text-yellow-700">จัดการข้อมูล (Admin)</h2><button id="close-list-view-btn" class="text-2xl font-bold text-slate-500 hover:text-slate-800">&times;</button></div><div class="border-b border-slate-200"><div class="flex -mb-px" id="admin-tabs"><button class="tab-button active text-sm font-medium text-center py-3 px-4 border-b-2 border-transparent" data-tab="tab-users">ทีม / กรรมการ</button><button class="tab-button text-sm font-medium text-center py-3 px-4 border-b-2 border-transparent" data-tab="tab-criteria">เกณฑ์การให้คะแนน</button></div></div><div class="pt-6"><div id="tab-users" class="tab-panel active"><div class="grid grid-cols-1 md:grid-cols-2 gap-8"><div><div class="flex justify-between items-center mb-4"><h3 class="text-xl font-semibold text-slate-800">จัดการทีม</h3><button id="add-new-team-from-list-btn" class="bg-cyan-600 text-white text-sm font-bold py-2 px-4 rounded-lg hover:bg-cyan-700 transition">เพิ่มทีมใหม่</button></div><div id="team-management-list" class="space-y-2 max-h-96 overflow-y-auto pr-2 border rounded-lg p-2 bg-slate-50"></div></div><div><div class="flex justify-between items-center mb-4"><h3 class="text-xl font-semibold text-slate-800">จัดการกรรมการ</h3><button id="add-new-judge-from-list-btn" class="bg-cyan-600 text-white text-sm font-bold py-2 px-4 rounded-lg hover:bg-cyan-700 transition">เพิ่มกรรมการใหม่</button></div><div id="judge-management-list" class="space-y-2 max-h-96 overflow-y-auto pr-2 border rounded-lg p-2 bg-slate-50"></div></div></div></div><div id="tab-criteria" class="tab-panel"><div class="flex justify-center mb-4 border-b"><button class="criteria-form-selector active p-3 border-b-2 font-semibold" data-form="idea">ฟอร์ม IDEA</button><button class="criteria-form-selector p-3 border-b-2 text-slate-500" data-form="poc">ฟอร์ม POC</button></div><div class="flex justify-between items-center mb-4"><h3 id="criteria-form-title" class="text-xl font-semibold text-slate-800">แก้ไขเกณฑ์ (ฟอร์ม IDEA)</h3></div><div id="criteria-management-list" class="space-y-4 max-h-[55vh] overflow-y-auto p-4 border rounded-lg bg-slate-50"></div><div class="mt-6 flex justify-between items-center"><button id="add-new-category-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition">เพิ่มหัวข้อหลักใหม่</button><button id="save-criteria-btn" class="bg-blue-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-blue-700 transition">บันทึกการเปลี่ยนแปลง</button></div></div></div></div></dialog>
+
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, updateDoc, onSnapshot, query, where, writeBatch } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+
+        // =======================================================================================
+        // =======================    สำคัญ: กรุณาใส่ Firebase Config ของคุณที่นี่   =======================
+        // =======================================================================================
+        // นี่คือ Config สำหรับโปรเจกต์ "ใหม่" ของ TED Fund
+        // หากคุณยังไม่ได้สร้างโปรเจกต์ใหม่ กรุณาทำตามไฟล์ INSTRUCTIONS_TED_FUND.md
+        const firebaseConfig = {
+           apiKey: "AIzaSyDfIasbgxsYrRaHjwlJPPNB3Fx0vMf8fSE",
+  authDomain: "ted-fund-scoring-app.firebaseapp.com",
+  projectId: "ted-fund-scoring-app",
+  storageBucket: "ted-fund-scoring-app.firebasestorage.app",
+  messagingSenderId: "536093026905",
+  appId: "1:536093026905:web:9f8694e919220522a09f48"
+        };
+        // =======================================================================================
+        // =======================================================================================
+        
+        // Initialize Firebase
+        let app, auth, db;
+
+        try {
+            if (firebaseConfig.apiKey === "YOUR_API_KEY" || !firebaseConfig.apiKey) {
+                throw new Error("Firebase config is not set.");
+            }
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (error) {
+            console.error("Firebase Initialization Error:", error);
+            const appLoader = document.getElementById('app-loader');
+            appLoader.innerHTML = `
+                <div class="text-center p-6 bg-red-100 border-l-4 border-red-500 text-red-800 max-w-md mx-auto rounded-r-lg">
+                    <p class="font-bold text-lg">ข้อผิดพลาดในการตั้งค่า Firebase</p>
+                    <p class="mt-2">ไม่สามารถเชื่อมต่อกับฐานข้อมูลได้ กรุณาตรวจสอบว่าคุณได้ใส่ค่า <code>firebaseConfig</code> ที่ถูกต้องในไฟล์ HTML แล้ว</p>
+                    <p class="mt-3 text-sm">ดูคำแนะนำอย่างละเอียดได้จากไฟล์ <strong>INSTRUCTIONS_TED_FUND.md</strong> ที่แนบไปพร้อมกัน</p>
+                </div>
+            `;
+            // Stop further script execution if Firebase is not configured
+            throw new Error("Execution stopped due to invalid Firebase config.");
+        }
+
+
+        document.addEventListener('DOMContentLoaded', function () {
+            
+            const defaultScoringData = {
+                idea: [
+                    { id: 'idea_1', title: '1. ศักยภาพด้านการตลาด', weight: 30, criteria: [
+                        { id: 'idea_1_1', text: 'การระบุ Pain Point และคุณค่าที่นำเสนอ', weight: 25 },
+                        { id: 'idea_1_2', text: 'ขนาดตลาดและแนวโน้ม (TAM/SAM/SOM)', weight: 30 },
+                        { id: 'idea_1_3', text: 'กลุ่มลูกค้าเป้าหมายและช่องทางการเข้าถึง', weight: 30 },
+                        { id: 'idea_1_4', text: 'การวิเคราะห์คู่แข่งและตำแหน่งทางการตลาด', weight: 15 }
+                    ] },
+                    { id: 'idea_2', title: '2. กลยุทธ์การดำเนินงานของธุรกิจนวัตกรรม', weight: 30, criteria: [
+                        { id: 'idea_2_1', text: 'โมเดลธุรกิจและแหล่งที่มาของรายได้', weight: 50 },
+                        { id: 'idea_2_2', text: 'แผนการดำเนินงานและการใช้งบประมาณ', weight: 50 }
+                    ] },
+                    { id: 'idea_3', title: '3. ความเป็นนวัตกรรมและการใช้เทคโนโลยี', weight: 25, criteria: [
+                        { id: 'idea_3_1', text: 'ความใหม่ในระดับภูมิภาค (Regional Novelty) และคุณค่าที่แตกต่าง', weight: 37.5 },
+                        { id: 'idea_3_2', text: 'ความเป็นไปได้ทางเทคโนโลยี (สำหรับ Mockup)', weight: 37.5 },
+                        { id: 'idea_3_3', text: 'การจัดการทรัพย์สินทางปัญญาเบื้องต้น', weight: 25 }
+                    ] },
+                    { id: 'idea_4', title: '4. การจัดการทีม', weight: 15, criteria: [
+                        { id: 'idea_4_1', text: 'ความสอดคล้องของผู้ก่อตั้งกับตลาด (Founder-Market Fit) และความพร้อมในการเรียนรู้ (Coachability)', weight: 50 },
+                        { id: 'idea_4_2', text: 'องค์ประกอบของทีมและการปฏิบัติตามเกณฑ์', weight: 50 }
+                    ] }
+                ],
+                poc: [
+                    { id: 'poc_1', title: '1. ความเป็นนวัตกรรมและเทคโนโลยี', weight: 30, criteria: [
+                        { id: 'poc_1_1', text: 'ความเป็นไปได้ทางเทคนิคและแผนการพัฒนา Prototype', weight: 37.5 },
+                        { id: 'poc_1_2', text: 'การจัดการทรัพย์สินทางปัญญา (IP) และสิทธิในการดำเนินงาน (Freedom to Operate)', weight: 37.5 },
+                        { id: 'poc_1_3', text: 'ความใหม่ของคุณค่าที่ส่งมอบและ Pain Point', weight: 25 }
+                    ] },
+                    { id: 'poc_2', title: '2. การจัดการทีม', weight: 25, criteria: [
+                        { id: 'poc_2_1', text: 'ผลงานที่ผ่านมาและความเชี่ยวชาญของทีม', weight: 40 },
+                        { id: 'poc_2_2', text: 'ขีดความสามารถในการบริหารโครงการและการเงิน', weight: 40 },
+                        { id: 'poc_2_3', text: 'การปฏิบัติตามเกณฑ์และโครงสร้างผู้ถือหุ้น', weight: 20 }
+                    ] },
+                    { id: 'poc_3', title: '3. ศักยภาพด้านการตลาด', weight: 25, criteria: [
+                        { id: 'poc_3_1', text: 'หลักฐานการยอมรับของตลาดและ Traction', weight: 40 },
+                        { id: 'poc_3_2', text: 'กลยุทธ์การเข้าสู่ตลาด (Go-to-Market) และเส้นทางสู่ "First Dollar"', weight: 30 },
+                        { id: 'poc_3_3', text: 'ขนาดตลาด, กลุ่มลูกค้า และช่องทาง (ที่ปรับปรุงแล้ว)', weight: 30 }
+                    ] },
+                    { id: 'poc_4', title: '4. กลยุทธ์การดำเนินงานของธุรกิจนวัตกรรม', weight: 20, criteria: [
+                        { id: 'poc_4_1', text: 'โมเดลธุรกิจที่ผ่านการปรับปรุงและความสามารถในการขยายตัว (Scalability)', weight: 50 },
+                        { id: 'poc_4_2', text: 'ผลกระทบเชิงเศรษฐกิจและสังคม', weight: 50 }
+                    ] }
+                ]
+            };
+            const defaultTeams = [ { id: 't1', name: 'ทีม IDEA 1', type: 'idea' }, { id: 't2', name: 'ทีม POC 1 (Proof of Concept)', type: 'poc' }];
+            const defaultJudges = [ { id: 'j1', name: 'กรรมการ TED Fund 1', assignedGroups: ['idea', 'poc'] }];
+
+            let database = {
+                teams: [],
+                judges: [],
+                scoringCriteria: { idea: [], poc: [] }
+            };
+            let scores = {}; // Local cache for scores
+            let comments = {}; // Local cache for comments
+            let currentTeam = null, currentUser = null, scoreChart = null, currentScoringData = [];
+            let editingTeamId = null, editingJudgeId = null;
+            let currentAdminCriteriaForm = 'idea';
+            let tempCriteria = {};
+            let unsubscribers = []; // To hold unsubscribe functions for realtime listeners
+
+            const ui = {
+                appLoader: document.getElementById('app-loader'),
+                loginContainer: document.getElementById('login-container'),
+                appContainer: document.getElementById('app-container'),
+                mainAppArea: document.getElementById('main-app-area'),
+                commentArea: document.getElementById('comment-area'),
+                loginModal: document.getElementById('login-modal'),
+                selectionModal: document.getElementById('selection-modal'),
+                reportModal: document.getElementById('report-modal'),
+                judgeReportModal: document.getElementById('judge-report-modal'),
+                addTeamModal: document.getElementById('add-team-modal'),
+                addJudgeModal: document.getElementById('add-judge-modal'),
+                addTeamForm: document.getElementById('add-team-form'),
+                addJudgeForm: document.getElementById('add-judge-form'),
+                listViewModal: document.getElementById('list-view-modal'),
+                totalScoreEl: document.getElementById('totalScore'),
+                radarChartCanvas: document.getElementById('scoreRadarChart').getContext('2d'),
+                strengthsEl: document.getElementById('strengths'),
+                improvementsEl: document.getElementById('improvements'),
+            };
+
+            function showLoader(isLoading) {
+                ui.appLoader.classList.toggle('hidden', !isLoading);
+                ui.loginContainer.classList.toggle('hidden', isLoading);
+                ui.appContainer.classList.toggle('hidden', isLoading);
+            }
+            
+            function setupRealtimeListeners() {
+                // Detach any existing listeners
+                unsubscribers.forEach(unsub => unsub());
+                unsubscribers = [];
+
+                const unsubTeams = onSnapshot(collection(db, "teams"), (snapshot) => {
+                    database.teams = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if(currentUser && currentUser.role === 'admin' && ui.listViewModal.open) {
+                        renderListView();
+                    }
+                }, (error) => { console.error("Error listening to teams: ", error); handleError(error); });
+                unsubscribers.push(unsubTeams);
+
+                const unsubJudges = onSnapshot(collection(db, "judges"), (snapshot) => {
+                    database.judges = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if(ui.loginModal.open) {
+                        renderLoginModal();
+                    }
+                     if(currentUser && currentUser.role === 'admin' && ui.listViewModal.open) {
+                        renderListView();
+                    }
+                }, (error) => { console.error("Error listening to judges: ", error); handleError(error); });
+                unsubscribers.push(unsubJudges);
+
+                const unsubIdeaCrit = onSnapshot(doc(db, "scoringCriteria", "idea"), (doc) => {
+                    if (doc.exists()) {
+                        database.scoringCriteria.idea = doc.data().criteria;
+                    }
+                }, (error) => { console.error("Error listening to idea criteria: ", error); handleError(error); });
+                 unsubscribers.push(unsubIdeaCrit);
+
+                const unsubPocCrit = onSnapshot(doc(db, "scoringCriteria", "poc"), (doc) => {
+                    if (doc.exists()) {
+                        database.scoringCriteria.poc = doc.data().criteria;
+                    }
+                }, (error) => { console.error("Error listening to poc criteria: ", error); handleError(error); });
+                unsubscribers.push(unsubPocCrit);
+
+                const unsubScores = onSnapshot(collection(db, "scores"), (snapshot) => {
+                    scores = {};
+                    snapshot.forEach(doc => {
+                        scores[doc.id] = doc.data().score;
+                    });
+                    if (currentTeam && currentUser) {
+                        calculateAndUpdateScores();
+                    }
+                }, (error) => { console.error("Error listening to scores: ", error); handleError(error); });
+                unsubscribers.push(unsubScores);
+
+                 const unsubComments = onSnapshot(collection(db, "comments"), (snapshot) => {
+                    comments = {};
+                    snapshot.forEach(doc => {
+                        comments[doc.id] = doc.data();
+                    });
+                }, (error) => { console.error("Error listening to comments: ", error); handleError(error); });
+                unsubscribers.push(unsubComments);
+            }
+
+            function handleError(error) {
+                 const appLoader = document.getElementById('app-loader');
+                 let message = "เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาลองใหม่อีกครั้ง";
+                 if (error.code === 'permission-denied') {
+                    message = `
+                        <p class="font-bold text-lg">ข้อผิดพลาด: ไม่มีสิทธิ์เข้าถึงฐานข้อมูล</p>
+                        <p class="mt-2">ปัญหานี้เกิดจากการตั้งค่า "กฎความปลอดภัย" (Security Rules) ใน Firebase Firestore ของคุณ</p>
+                        <p class="mt-3 text-sm">กรุณาทำตาม <strong>ขั้นตอนที่ 6</strong> ในไฟล์ <strong>INSTRUCTIONS_TED_FUND.md</strong> เพื่ออัปเดตกฎ และให้แอปพลิเคชันสามารถอ่านและเขียนข้อมูลได้</p>
+                    `;
+                 }
+                 appLoader.innerHTML = `<div class="text-center p-6 bg-red-100 border-l-4 border-red-500 text-red-800 max-w-lg mx-auto rounded-r-lg">${message}</div>`;
+                 showLoader(true);
+                 ui.loginContainer.classList.add('hidden');
+                 ui.appContainer.classList.add('hidden');
+            }
+            
+            function renderLoginModal() {
+                const judgeListEl = document.getElementById('login-judge-list');
+                judgeListEl.innerHTML = database.judges.map(j => `<button class="w-full text-left p-3 border rounded-md cursor-pointer hover:bg-teal-50" data-judge-id="${j.id}">เข้าสู่ระบบในฐานะกรรมการ: ${j.name}</button>`).join('');
+                document.querySelectorAll('#login-judge-list button').forEach(btn => btn.addEventListener('click', () => {
+                    const judgeId = btn.dataset.judgeId;
+                    const judge = database.judges.find(j => j.id === judgeId);
+                    login({ ...judge, role: 'judge' });
+                }));
+            }
+
+            function login(user) { currentUser = user; ui.loginContainer.classList.add('hidden'); ui.appContainer.classList.remove('hidden'); ui.loginModal.close(); updateUIForUser(); }
+            
+            async function handleLogout() {
+                try {
+                    // Don't sign out from anonymous auth, just reset the local state
+                    currentUser = null;
+                    ui.appContainer.classList.add('hidden');
+                    ui.loginContainer.classList.remove('hidden');
+                    ui.mainAppArea.classList.add('hidden');
+                    ui.commentArea.classList.add('hidden');
+                    document.getElementById('current-selection-display').innerHTML = `<p class="text-lg font-semibold text-slate-700">ยังไม่ได้เลือกทีม</p><p id="logged-in-user-display" class="text-sm text-slate-500"></p>`;
+                } catch (error) {
+                    console.error("Error logging out: ", error);
+                }
+            }
+
+
+            function updateUIForUser() {
+                document.getElementById('logged-in-user-display').textContent = `เข้าสู่ระบบโดย: ${currentUser.name}`;
+                const judgeReportBtn = document.getElementById('view-judge-report-btn');
+                const viewReportBtn = document.getElementById('view-report-btn');
+                const listViewBtn = document.getElementById('list-view-btn');
+                if (currentUser.role === 'admin') { judgeReportBtn.textContent = 'รายงานตามกรรมการ (Admin)'; judgeReportBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700'); judgeReportBtn.classList.add('bg-purple-600', 'hover:bg-purple-700'); listViewBtn.classList.remove('hidden'); viewReportBtn.classList.remove('hidden'); } 
+                else { judgeReportBtn.textContent = 'รายงานของฉัน'; judgeReportBtn.classList.remove('bg-purple-600', 'hover:bg-purple-700'); judgeReportBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700'); listViewBtn.classList.add('hidden'); viewReportBtn.classList.add('hidden'); }
+            }
+
+            function renderTeamSelectionList() {
+                const teamListEl = document.getElementById('team-list');
+                let visibleTeams = database.teams;
+                if (currentUser.role === 'judge') { visibleTeams = database.teams.filter(team => currentUser.assignedGroups.includes(team.type)); }
+                if (visibleTeams.length > 0) { teamListEl.innerHTML = visibleTeams.map(t => `<div class="p-3 border rounded-md cursor-pointer hover:bg-teal-50" data-team-id="${t.id}">${t.name} <span class="text-xs text-slate-500">(${t.type === 'idea' ? 'IDEA' : 'POC'})</span></div>`).join(''); } 
+                else { teamListEl.innerHTML = `<p class="text-center text-slate-500 py-4">ไม่มีทีมที่คุณได้รับมอบหมาย</p>`; }
+            }
+
+            function startScoring(teamId) {
+                currentTeam = database.teams.find(t => t.id === teamId);
+                document.getElementById('current-selection-display').innerHTML = `<p class="text-lg font-semibold text-slate-700">กำลังประเมิน: <span class="text-teal-600">${currentTeam.name}</span></p><p class="text-sm text-slate-500">โดย: ${currentUser.name}</p>`;
+                currentScoringData = JSON.parse(JSON.stringify(database.scoringCriteria[currentTeam.type]));
+                renderScoringUI(); loadScoresForCurrentSelection(); calculateAndUpdateScores();
+                ui.mainAppArea.classList.remove('hidden'); ui.commentArea.classList.remove('hidden');
+            }
+
+            function renderScoringUI() {
+                const scoringContainer = document.getElementById('scoring-criteria');
+                scoringContainer.innerHTML = '';
+                currentScoringData.forEach(category => {
+                    scoringContainer.innerHTML += `<div class="bg-white rounded-xl shadow-md overflow-hidden"><details class="group" open><summary class="flex items-center justify-between p-4 cursor-pointer bg-slate-50 hover:bg-slate-100"><h3 class="text-lg font-bold text-slate-700">${category.title} <span class="text-sm font-normal text-slate-500">(${category.weight}%)</span></h3><svg class="w-5 h-5 text-slate-500 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></summary><div class="p-5 border-t border-slate-200"><p class="text-sm text-slate-600 mb-6">ให้คะแนน 1-5 (5=ดีเยี่ยม)</p><div class="space-y-6">${category.criteria.map((criterion, index) => `<div><p class="font-medium mb-3 text-slate-700">${index + 1}. ${criterion.text} <span class="font-normal text-slate-500 text-sm">(${criterion.weight}%)</span></p><div class="flex items-center justify-center space-x-2 sm:space-x-4">${[1,2,3,4,5].map(score => `<div class="flex-1 text-center"><input type="radio" name="${criterion.id}" id="${criterion.id}-${score}" value="${score}" class="sr-only score-input"><label for="${criterion.id}-${score}" class="score-label cursor-pointer w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center rounded-full border-2 border-slate-200 text-lg font-semibold text-slate-500 hover:bg-slate-100 hover:border-teal-300">${score}</label></div>`).join('')}</div></div>`).join('')}</div></div></details></div>`;
+                });
+                scoringContainer.innerHTML += '<div class="mt-4 p-4 bg-slate-100 rounded-lg text-sm text-slate-600 text-center"><strong>วิธีการคำนวณคะแนน:</strong> คะแนนรวมสุดท้ายคำนวณจากผลรวมของ (คะแนนเฉลี่ยถ่วงน้ำหนักในแต่ละหมวดหมู่ x สัดส่วนน้ำหนัก% ของหมวดหมู่นั้น)</div>';
+                document.querySelectorAll('.score-input').forEach(input => input.addEventListener('change', handleScoreChange));
+                initializeChart();
+            }
+
+            async function handleScoreChange(event) {
+                const criterionId = event.target.name;
+                const score = parseInt(event.target.value);
+                const docId = `${currentTeam.id}-${currentUser.id}-${criterionId}`;
+                scores[docId] = score;
+                try {
+                    await setDoc(doc(db, "scores", docId), { score: score });
+                } catch (e) { console.error("Error updating score: ", e); }
+                calculateAndUpdateScores();
+            }
+
+            function initializeChart() {
+                if (scoreChart) scoreChart.destroy();
+                scoreChart = new Chart(ui.radarChartCanvas, { type: 'radar', data: { labels: currentScoringData.map(c => c.title), datasets: [{ label: 'คะแนน', data: Array(currentScoringData.length).fill(0), backgroundColor: 'rgba(20, 184, 166, 0.2)', borderColor: 'rgba(15, 118, 110, 1)' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, max: 100, ticks: { stepSize: 20 }, pointLabels: { font: { size: 11 } } } }, plugins: { legend: { display: false } } } });
+            }
+
+            function loadScoresForCurrentSelection() {
+                currentScoringData.forEach(category => category.criteria.forEach(criterion => {
+                    const score = scores[`${currentTeam.id}-${currentUser.id}-${criterion.id}`];
+                    const radio = document.getElementById(`${criterion.id}-${score}`);
+                    if (radio) radio.checked = true;
+                }));
+                const comment = comments[`${currentTeam.id}-${currentUser.id}`] || { strengths: '', improvements: '' };
+                ui.strengthsEl.value = comment.strengths; ui.improvementsEl.value = comment.improvements;
+            }
+
+            function calculateAndUpdateScores() {
+                 let finalScore = 0; const chartData = [];
+                currentScoringData.forEach(category => {
+                    let categoryWeightedScoreSum = 0;
+                    let totalSubWeight = 0;
+                    category.criteria.forEach(criterion => {
+                        const score = scores[`${currentTeam.id}-${currentUser.id}-${criterion.id}`] || 0;
+                        const weight = criterion.weight || 0;
+                        if (score > 0) { 
+                            categoryWeightedScoreSum += score * weight;
+                            totalSubWeight += weight;
+                        }
+                    });
+                    const categoryAverage = totalSubWeight > 0 ? categoryWeightedScoreSum / totalSubWeight : 0;
+                    finalScore += categoryAverage * (category.weight / 100);
+                    
+                    const maxPossibleCategoryScore = 5;
+                    const normalizedCategoryScore = maxPossibleCategoryScore > 0 ? (categoryAverage / maxPossibleCategoryScore) * 100 : 0;
+                    chartData.push(normalizedCategoryScore);
+                });
+                ui.totalScoreEl.textContent = finalScore.toFixed(2);
+                if (scoreChart) { scoreChart.data.datasets[0].data = chartData; scoreChart.update(); }
+            }
+            
+            function renderListView() {
+                 const teamList = document.getElementById('team-management-list');
+                 teamList.innerHTML = database.teams.map(t => `<div class="flex justify-between items-center p-2 bg-white rounded-md border"><p>${t.name} <span class="text-xs text-slate-500">(${t.type === 'idea' ? 'IDEA' : 'POC'})</span></p><div class="space-x-2"><button class="edit-team-btn text-blue-600 text-sm font-semibold" data-id="${t.id}">แก้ไข</button><button class="delete-team-btn text-red-600 text-sm font-semibold" data-id="${t.id}">ลบ</button></div></div>`).join('');
+                 const judgeList = document.getElementById('judge-management-list');
+                 judgeList.innerHTML = database.judges.map(j => `<div class="flex justify-between items-center p-2 bg-white rounded-md border"><p>${j.name} <span class="text-xs text-slate-500">(${j.assignedGroups.map(g => g === 'idea' ? 'IDEA' : 'POC').join(', ')})</span></p><div class="space-x-2"><button class="edit-judge-btn text-blue-600 text-sm font-semibold" data-id="${j.id}">แก้ไข</button><button class="delete-judge-btn text-red-600 text-sm font-semibold" data-id="${j.id}">ลบ</button></div></div>`).join('');
+            }
+
+            async function handleListViewClick(e) {
+                const id = e.target.dataset.id;
+                if (e.target.classList.contains('edit-team-btn')) {
+                    editingTeamId = id; const team = database.teams.find(t => t.id === id);
+                    ui.addTeamForm.querySelector('h2').textContent = 'แก้ไขข้อมูลทีม';
+                    document.getElementById('new-team-name').value = team.name;
+                    ui.addTeamForm.elements['team-type'].value = team.type;
+                    ui.addTeamModal.showModal();
+                }
+                if (e.target.classList.contains('delete-team-btn')) {
+                    if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบทีมนี้? ข้อมูลคะแนนและคอมเมนต์ทั้งหมดของทีมนี้จะถูกลบออกไปด้วย`)) {
+                        try {
+                            const batch = writeBatch(db);
+                            const teamRef = doc(db, "teams", id);
+                            batch.delete(teamRef);
+                            
+                            const scoresQuery = query(collection(db, "scores"));
+                            const scoresSnapshot = await getDocs(scoresQuery);
+                            scoresSnapshot.forEach(doc => {
+                                if(doc.id.startsWith(id + '-')) {
+                                    batch.delete(doc.ref);
+                                }
+                            });
+                            
+                            const commentsQuery = query(collection(db, "comments"));
+                            const commentsSnapshot = await getDocs(commentsQuery);
+                             commentsSnapshot.forEach(doc => {
+                                if(doc.id.startsWith(id + '-')) {
+                                    batch.delete(doc.ref);
+                                }
+                            });
+
+                            await batch.commit();
+                            alert('ลบข้อมูลทีมเรียบร้อยแล้ว');
+                        } catch (error) {
+                             console.error("Error deleting team and associated data: ", error);
+                             alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+                        }
+                    }
+                }
+                if (e.target.classList.contains('edit-judge-btn')) {
+                    editingJudgeId = id; const judge = database.judges.find(j => j.id === id);
+                    ui.addJudgeForm.querySelector('h2').textContent = 'แก้ไขข้อมูลกรรมการ';
+                    document.getElementById('new-judge-name').value = judge.name;
+                    ui.addJudgeForm.elements['judge-group'].forEach(cb => cb.checked = judge.assignedGroups.includes(cb.value));
+                    ui.addJudgeModal.showModal();
+                }
+                if (e.target.classList.contains('delete-judge-btn')) {
+                     if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบกรรมการท่านนี้? ข้อมูลคะแนนและคอมเมนต์ทั้งหมดของกรรมการท่านนี้จะถูกลบไปด้วย`)) {
+                        try {
+                            const batch = writeBatch(db);
+                            const judgeRef = doc(db, "judges", id);
+                            batch.delete(judgeRef);
+
+                            const scoresQuery = query(collection(db, "scores"));
+                            const scoresSnapshot = await getDocs(scoresQuery);
+                            scoresSnapshot.forEach(doc => {
+                                if(doc.id.split('-')[1] === id) {
+                                    batch.delete(doc.ref);
+                                }
+                            });
+
+                            const commentsQuery = query(collection(db, "comments"));
+                            const commentsSnapshot = await getDocs(commentsQuery);
+                            commentsSnapshot.forEach(doc => {
+                                if(doc.id.split('-')[1] === id) {
+                                    batch.delete(doc.ref);
+                                }
+                            });
+
+                            await batch.commit();
+                             alert('ลบข้อมูลกรรมการเรียบร้อยแล้ว');
+                        } catch (error) {
+                             console.error("Error deleting judge and associated data: ", error);
+                             alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+                        }
+                    }
+                }
+            }
+
+            function renderCriteriaManagementView(formType) {
+                currentAdminCriteriaForm = formType;
+                const container = document.getElementById('criteria-management-list');
+                document.getElementById('criteria-form-title').textContent = `แก้ไขเกณฑ์ (ฟอร์ม ${formType === 'idea' ? 'IDEA' : 'POC'})`;
+                
+                const criteriaToRender = tempCriteria[formType];
+                
+                container.innerHTML = criteriaToRender.map((cat, catIndex) => {
+                    return `<div class="p-4 bg-white rounded-lg border" data-cat-index="${catIndex}">
+                                <div class="flex items-center gap-4 mb-3">
+                                    <input type="text" value="${cat.title}" class="cat-title-input flex-grow p-2 border rounded-md" placeholder="ชื่อหัวข้อหลัก">
+                                    <input type="number" value="${cat.weight}" min="0" class="cat-weight-input w-24 p-2 border rounded-md" placeholder="น้ำหนัก %">
+                                    <button class="delete-cat-btn text-red-500 hover:text-red-700 font-bold">ลบ</button>
+                                </div>
+                                <div class="pl-6 space-y-2 criteria-list">
+                                    ${cat.criteria.map((crit, critIndex) => `
+                                        <div class="flex items-center gap-2" data-crit-index="${critIndex}">
+                                            <input type="text" value="${crit.text}" class="crit-text-input flex-grow p-2 border rounded-md text-sm" placeholder="เกณฑ์การประเมิน">
+                                            <input type="number" value="${crit.weight || ''}" min="0" class="crit-weight-input w-24 p-2 border rounded-md text-sm" placeholder="%">
+                                            <button class="delete-crit-btn text-red-500 hover:text-red-700 font-bold text-sm">ลบ</button>
+                                        </div>`).join('')}
+                                </div>
+                                <button class="add-crit-btn mt-3 text-sm text-green-600 hover:text-green-800 font-semibold">+ เพิ่มเกณฑ์ย่อย</button>
+                            </div>`;
+                }).join('');
+            }
+            
+            function handleCriteriaChange(e) {
+                const target = e.target;
+                const formType = currentAdminCriteriaForm;
+
+                const catDiv = target.closest('[data-cat-index]');
+                if (!catDiv) return;
+                const catIndex = parseInt(catDiv.dataset.catIndex, 10);
+
+                const critDiv = target.closest('[data-crit-index]');
+
+                if (critDiv) {
+                    const critIndex = parseInt(critDiv.dataset.critIndex, 10);
+                    if (target.classList.contains('crit-text-input')) {
+                        tempCriteria[formType][catIndex].criteria[critIndex].text = target.value;
+                    } else if (target.classList.contains('crit-weight-input')) {
+                        tempCriteria[formType][catIndex].criteria[critIndex].weight = parseInt(target.value, 10) || 0;
+                    }
+                } else {
+                    if (target.classList.contains('cat-title-input')) {
+                        tempCriteria[formType][catIndex].title = target.value;
+                    } else if (target.classList.contains('cat-weight-input')) {
+                        tempCriteria[formType][catIndex].weight = parseInt(target.value, 10) || 0;
+                    }
+                }
+            }
+            
+            function handleCriteriaClick(e) {
+                const target = e.target;
+                const formType = currentAdminCriteriaForm;
+                const catDiv = target.closest('[data-cat-index]');
+                if (!catDiv) return;
+                const catIndex = parseInt(catDiv.dataset.catIndex, 10);
+
+                if (target.classList.contains('delete-cat-btn')) {
+                    tempCriteria[formType].splice(catIndex, 1);
+                } else if (target.classList.contains('add-crit-btn')) {
+                    tempCriteria[formType][catIndex].criteria.push({ id: 'c' + Date.now(), text: '', weight: 0 });
+                } else if (target.classList.contains('delete-crit-btn')) {
+                    const critDiv = target.closest('[data-crit-index]');
+                    const critIndex = parseInt(critDiv.dataset.critIndex, 10);
+                    tempCriteria[formType][catIndex].criteria.splice(critIndex, 1);
+                }
+                renderCriteriaManagementView(formType);
+            }
+            
+            function calculateTeamScore(team, judgeId, localScores) {
+                const criteriaForm = database.scoringCriteria[team.type]; if (!criteriaForm) return 0; let finalScore = 0;
+                criteriaForm.forEach(category => {
+                    let categoryWeightedScoreSum = 0;
+                    let totalSubWeight = 0;
+                    category.criteria.forEach(criterion => {
+                        const score = localScores[`${team.id}-${judgeId}-${criterion.id}`] || 0;
+                        const weight = criterion.weight || 0;
+                        if (score > 0) { 
+                            categoryWeightedScoreSum += score * weight;
+                            totalSubWeight += weight;
+                        }
+                    });
+                    const categoryAverage = totalSubWeight > 0 ? categoryWeightedScoreSum / totalSubWeight : 0;
+                    finalScore += categoryAverage * (category.weight / 100);
+                });
+                return finalScore;
+            }
+
+            // Authentication Listener
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                   showLoader(true);
+                   setupRealtimeListeners();
+                   // Wait a bit for initial data to load via snapshot
+                   setTimeout(() => {
+                       showLoader(false);
+                       ui.loginContainer.classList.remove('hidden');
+                   }, 1500);
+                } else {
+                    showLoader(false);
+                    ui.loginContainer.classList.remove('hidden');
+                    ui.appContainer.classList.add('hidden');
+                }
+            });
+
+            signInAnonymously(auth).catch((error) => {
+                 console.error(error);
+                 const appLoader = document.getElementById('app-loader');
+                 appLoader.innerHTML = `
+                    <div class="text-center p-6 bg-red-100 border-l-4 border-red-500 text-red-800 max-w-md mx-auto rounded-r-lg">
+                        <p class="font-bold text-lg">ข้อผิดพลาดในการยืนยันตัวตน</p>
+                        <p class="mt-2">อาจเกิดจาก API Key ไม่ถูกต้อง หรือคุณยังไม่ได้เปิดใช้งาน "Anonymous" sign-in method ใน Firebase console</p>
+                        <p class="mt-3 text-sm">กรุณาตรวจสอบขั้นตอนที่ 3 และ 4 ในไฟล์ <strong>INSTRUCTIONS.md</strong></p>
+                    </div>
+                `;
+            });
+
+            // Event Listeners Setup
+            document.getElementById('login-btn').addEventListener('click', () => { renderLoginModal(); ui.loginModal.showModal(); });
+            document.getElementById('login-admin-btn').addEventListener('click', () => login({ id: 'admin', name: 'Admin', role: 'admin' }));
+            document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            document.getElementById('select-judge-team-btn').addEventListener('click', () => { renderTeamSelectionList(); const confirmBtn = document.getElementById('confirm-selection-btn'); confirmBtn.disabled = true; document.querySelectorAll('#team-list > div').forEach(el => el.addEventListener('click', e => { document.querySelectorAll('#team-list > div').forEach(d => d.classList.remove('bg-teal-200')); e.currentTarget.classList.add('bg-teal-200'); confirmBtn.disabled = false; })); ui.selectionModal.showModal(); });
+            document.getElementById('cancel-selection-btn').addEventListener('click', () => ui.selectionModal.close());
+            document.getElementById('confirm-selection-btn').addEventListener('click', () => { const selectedTeamId = document.querySelector('#team-list .bg-teal-200')?.dataset.teamId; if (selectedTeamId) { startScoring(selectedTeamId); ui.selectionModal.close(); } });
+            
+            async function handleCommentInput() {
+                if(currentTeam && currentUser) {
+                    const commentId = `${currentTeam.id}-${currentUser.id}`;
+                    const commentData = { strengths: ui.strengthsEl.value, improvements: ui.improvementsEl.value };
+                    comments[commentId] = commentData;
+                    await setDoc(doc(db, "comments", commentId), commentData);
+                }
+            }
+            [ui.strengthsEl, ui.improvementsEl].forEach(el => el.addEventListener('input', handleCommentInput));
+
+            document.getElementById('submit-score-btn').addEventListener('click', () => { ui.mainAppArea.classList.add('hidden'); ui.commentArea.classList.add('hidden'); document.getElementById('current-selection-display').innerHTML = `<p class="text-lg font-semibold text-slate-700">ส่งคะแนนสำหรับทีม ${currentTeam.name} เรียบร้อย</p><p id="logged-in-user-display" class="text-sm text-slate-500"></p>`; updateUIForUser(); });
+            document.getElementById('close-report-btn').addEventListener('click', () => ui.reportModal.close());
+            document.getElementById('close-judge-report-btn').addEventListener('click', () => ui.judgeReportModal.close());
+            document.getElementById('list-view-btn').addEventListener('click', () => { renderListView(); tempCriteria = JSON.parse(JSON.stringify(database.scoringCriteria)); renderCriteriaManagementView('idea'); ui.listViewModal.showModal(); });
+            document.getElementById('close-list-view-btn').addEventListener('click', () => ui.listViewModal.close());
+            document.getElementById('team-management-list').addEventListener('click', handleListViewClick);
+            document.getElementById('judge-management-list').addEventListener('click', handleListViewClick);
+            document.getElementById('add-new-team-from-list-btn').addEventListener('click', () => { editingTeamId = null; ui.addTeamForm.reset(); ui.addTeamForm.querySelector('h2').textContent = 'เพิ่มทีมใหม่'; ui.addTeamModal.showModal(); });
+            document.getElementById('add-new-judge-from-list-btn').addEventListener('click', () => { editingJudgeId = null; ui.addJudgeForm.reset(); ui.addJudgeForm.querySelector('h2').textContent = 'เพิ่มกรรมการใหม่'; ui.addJudgeModal.showModal(); });
+            ui.addTeamForm.addEventListener('submit', async (e) => { e.preventDefault(); const tN=document.getElementById('new-team-name').value; const tT=e.target.elements['team-type'].value; if(!tN||!tT)return; if(editingTeamId){await updateDoc(doc(db,"teams",editingTeamId),{name:tN,type:tT});alert('แก้ไขข้อมูลทีมเรียบร้อยแล้ว')}else{const newDocRef = doc(collection(db, "teams")); await setDoc(newDocRef, { name:tN, type:tT}); alert('เพิ่มทีมเรียบร้อยแล้ว')} ui.addTeamForm.reset();ui.addTeamModal.close();editingTeamId=null; });
+            document.getElementById('cancel-add-team-btn').addEventListener('click', () => { ui.addTeamForm.reset(); ui.addTeamForm.querySelector('h2').textContent = 'เพิ่มทีมใหม่'; editingTeamId = null; ui.addTeamModal.close(); });
+            ui.addJudgeForm.addEventListener('submit', async (e) => { e.preventDefault(); const jN=document.getElementById('new-judge-name').value; const aG=Array.from(e.target.elements['judge-group']).filter(cb=>cb.checked).map(cb=>cb.value); const err=document.getElementById('group-error'); if(!jN||aG.length===0){err.classList.remove('hidden');return} err.classList.add('hidden'); if(editingJudgeId){await updateDoc(doc(db,"judges",editingJudgeId),{name:jN,assignedGroups:aG});alert('แก้ไขข้อมูลกรรมการเรียบร้อยแล้ว')}else{const newDocRef = doc(collection(db, "judges")); await setDoc(newDocRef, { name:jN, assignedGroups:aG}); alert('เพิ่มกรรมการเรียบร้อยแล้ว')} ui.addJudgeForm.reset();ui.addJudgeModal.close();editingJudgeId=null; });
+            document.getElementById('cancel-add-judge-btn').addEventListener('click', () => { ui.addJudgeForm.reset(); ui.addJudgeForm.querySelector('h2').textContent = 'เพิ่มกรรมการใหม่'; editingJudgeId = null; ui.addJudgeModal.close(); });
+            document.getElementById('admin-tabs').addEventListener('click', e => { if(e.target.classList.contains('tab-button')) { document.querySelectorAll('#admin-tabs .tab-button').forEach(btn => btn.classList.remove('active')); e.target.classList.add('active'); document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active')); document.getElementById(e.target.dataset.tab).classList.add('active'); } });
+            document.querySelectorAll('.criteria-form-selector').forEach(btn => btn.addEventListener('click', e => { document.querySelectorAll('.criteria-form-selector').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); renderCriteriaManagementView(e.target.dataset.form); }));
+            document.getElementById('criteria-management-list').addEventListener('input', handleCriteriaChange);
+            document.getElementById('criteria-management-list').addEventListener('click', handleCriteriaClick);
+            document.getElementById('add-new-category-btn').addEventListener('click', () => { tempCriteria[currentAdminCriteriaForm].push({ id: 'cat' + Date.now(), title: '', weight: 0, criteria: [{id: 'c' + Date.now(), text: '', weight: 0}] }); renderCriteriaManagementView(currentAdminCriteriaForm); });
+            document.getElementById('save-criteria-btn').addEventListener('click', async () => { 
+                try {
+                    await setDoc(doc(db, "scoringCriteria", "idea"), { criteria: tempCriteria.idea });
+                    await setDoc(doc(db, "scoringCriteria", "poc"), { criteria: tempCriteria.poc });
+                    database.scoringCriteria = JSON.parse(JSON.stringify(tempCriteria));
+                    alert('บันทึกเกณฑ์การให้คะแนนเรียบร้อยแล้ว'); 
+                } catch (e) {
+                    console.error("Error saving criteria:", e);
+                    alert('เกิดข้อผิดพลาดในการบันทึกเกณฑ์');
+                }
+            });
+            
+            // Reports with new calculation
+            document.getElementById('view-report-btn').addEventListener('click', () => { const reportContentEl=document.getElementById('report-content');const processedTeams=database.teams.map(team=>{let judgeScores=[];database.judges.forEach(judge=>{const hasScores = Object.keys(scores).some(k => k.startsWith(`${team.id}-${judge.id}`)); if(hasScores){judgeScores.push(calculateTeamScore(team,judge.id,scores))}});const averageScore=judgeScores.length>0?judgeScores.reduce((a,b)=>a+b,0)/judgeScores.length:0;return{...team,judgeCount:judgeScores.length,averageScore,hasBeenScored:judgeScores.length>0}}).filter(t=>t.hasBeenScored);const reportGroups={idea:processedTeams.filter(t=>t.type==='idea').sort((a,b)=>b.averageScore-a.averageScore),poc:processedTeams.filter(t=>t.type==='poc').sort((a,b)=>b.averageScore-a.averageScore)};let reportHtml='';const groupTitles={idea:'กลุ่ม IDEA',poc:'กลุ่ม Proof of Concept (POC)'};for(const group in reportGroups){if(reportGroups[group].length>0){reportHtml+=`<h3 class="text-2xl font-bold text-slate-700 mt-6 mb-3 p-2 bg-slate-100 rounded">${groupTitles[group]}</h3><div class="overflow-x-auto"><table class="w-full text-sm text-left table-auto"><thead class="bg-slate-200"><tr><th class="px-4 py-2 w-16 text-center">อันดับ</th><th class="px-4 py-2">ชื่อทีม</th><th class="px-4 py-2 text-center">จำนวนกรรมการ</th><th class="px-4 py-2 text-right">คะแนนเฉลี่ยรวม</th></tr></thead><tbody>`;reportGroups[group].forEach((team,index)=>{reportHtml+=`<tr class="border-b hover:bg-slate-50"><td class="px-4 py-3 text-center font-bold">${index+1}</td><td class="px-4 py-3 font-semibold text-teal-800">${team.name}</td><td class="px-4 py-3 text-center">${team.judgeCount}</td><td class="px-4 py-3 text-right font-bold text-xl text-teal-600">${team.averageScore.toFixed(2)}</td></tr>`});reportHtml+=`</tbody></table></div>`}}if(reportHtml===''){reportHtml='<p class="text-center text-slate-500 py-8">ยังไม่มีข้อมูลการประเมินเพียงพอที่จะสร้างรายงานสรุป</p>'}reportContentEl.innerHTML=reportHtml;ui.reportModal.showModal();});
+            document.getElementById('view-judge-report-btn').addEventListener('click', () => { const reportContentEl=document.getElementById('judge-report-content');document.getElementById('judge-report-title').textContent=currentUser.role==='admin'?'รายงานประเมินผลรายบุคคล (Admin)':'รายงานการประเมินของคุณ';const processedTeams=database.teams.map(team=>{let judgeCalculations=[];let allJudgeScores=[];database.judges.forEach(judge=>{const hasScores=Object.keys(scores).some(k=>k.startsWith(`${team.id}-${judge.id}`));if(hasScores){const judgeScore=calculateTeamScore(team,judge.id,scores);judgeCalculations.push({judgeId:judge.id,judgeName:judge.name,score:judgeScore});allJudgeScores.push(judgeScore)}});const averageScore=allJudgeScores.length>0?allJudgeScores.reduce((a,b)=>a+b,0)/allJudgeScores.length:0;return{...team,judgeCalculations,averageScore,hasBeenScored:allJudgeScores.length>0}}).filter(t=>t.hasBeenScored);const reportGroups={idea:processedTeams.filter(t=>t.type==='idea').sort((a,b)=>b.averageScore-a.averageScore),poc:processedTeams.filter(t=>t.type==='poc').sort((a,b)=>b.averageScore-a.averageScore)};let reportHtml='';const groupTitles={idea:'กลุ่ม IDEA',poc:'กลุ่ม Proof of Concept (POC)'};for(const group in reportGroups){if(reportGroups[group].length>0){reportHtml+=`<h3 class="text-2xl font-bold text-slate-700 mt-6 mb-3 p-2 bg-slate-100 rounded">${groupTitles[group]}</h3><div class="space-y-4">`;reportGroups[group].forEach((team,index)=>{const finalJudgeCalculations=(currentUser.role==='admin')?team.judgeCalculations:team.judgeCalculations.filter(jc=>jc.judgeId===currentUser.id);if(finalJudgeCalculations.length===0)return;reportHtml+=`<div class="bg-white p-4 rounded-lg shadow border"><div class="flex flex-col sm:flex-row justify-between sm:items-baseline"><div class="flex items-baseline gap-3 mb-2 sm:mb-0"><span class="text-xl font-bold text-white bg-indigo-600 rounded-full flex items-center justify-center w-8 h-8 flex-shrink-0">${index+1}</span><h4 class="font-bold text-xl text-indigo-800">${team.name}</h4></div><div><span class="font-semibold text-slate-600">คะแนนรวมเฉลี่ย:</span><span class="font-bold text-2xl text-indigo-600">${team.averageScore.toFixed(2)}</span></div></div><div class="mt-3 sm:ml-11 sm:pl-4 sm:border-l-2 border-slate-200"><h5 class="font-semibold text-slate-500 text-sm mb-2">รายละเอียดคะแนนรายบุคคล:</h5><div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead><tr class="bg-slate-50"><th class="px-3 py-2">กรรมการ</th><th class="px-3 py-2 text-right">คะแนนที่ให้</th></tr></thead><tbody>${finalJudgeCalculations.sort((a,b)=>b.score-a.score).map(j=>`<tr class="border-b"><td class="px-3 py-2">${j.judgeName}</td><td class="px-3 py-2 text-right font-semibold">${j.score.toFixed(2)}</td></tr>`).join('')}</tbody></table></div></div></div>`});reportHtml+='</div>'}}if(reportHtml===''){reportHtml='<p class="text-center text-slate-500 py-8">ยังไม่มีข้อมูลการประเมิน</p>'}reportContentEl.innerHTML=reportHtml;ui.judgeReportModal.showModal();});
+
+        });
+    </script>
+</body>
+</html>
